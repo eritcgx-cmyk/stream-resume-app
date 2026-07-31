@@ -144,7 +144,7 @@ function handleProfileSave() {
   localStorage.setItem('stream_resume_user_id', USER_ID);
   updateProfileUI();
   profileModal.classList.add('hidden');
-  loadVideos(); // Reload grid with updated profile watch progress
+  loadVideos();
 }
 
 // Format bytes to human readable string
@@ -203,7 +203,6 @@ async function renderVideoGrid(videos) {
     const card = document.createElement('div');
     card.className = 'video-card';
 
-    // Fetch progress for this video & profile
     let progressSeconds = 0;
     let durationSeconds = 0;
     try {
@@ -313,14 +312,15 @@ async function handleUploadSubmit(e) {
   e.preventDefault();
 
   const file = videoFileInput.files[0];
-  const title = videoTitleInput.value.trim();
+  if (!file) return;
 
-  if (!file || !title) return;
+  const rawTitle = videoTitleInput.value.trim();
+  const title = rawTitle || file.name.replace(/\.[^/.]+$/, "") || "Untitled Video";
 
   startUploadBtn.disabled = true;
   uploadProgressSection.classList.remove('hidden');
 
-  const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+  const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
   activeUploadController = new AbortController();
 
   const startTime = Date.now();
@@ -332,10 +332,10 @@ async function handleUploadSubmit(e) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        title,
-        fileName: file.name,
-        fileSize: file.size,
-        totalChunks,
+        title: title,
+        fileName: file.name || 'video.mp4',
+        fileSize: Number(file.size),
+        totalChunks: totalChunks,
         mimeType: file.type || 'video/mp4'
       }),
       signal: activeUploadController.signal

@@ -54,11 +54,11 @@ class FileDB {
   }
 
   getVideos() {
-    return this.data.videos.sort((a, b) => b.created_at - a.created_at);
+    return (this.data.videos || []).sort((a, b) => b.created_at - a.created_at);
   }
 
   getVideo(id) {
-    return this.data.videos.find(v => v.id === id);
+    return (this.data.videos || []).find(v => v.id === id);
   }
 
   addVideo(video) {
@@ -67,9 +67,8 @@ class FileDB {
   }
 
   deleteVideo(id) {
-    this.data.videos = this.data.videos.filter(v => v.id !== id);
-    // Delete related progress records
-    Object.keys(this.data.progress).forEach(key => {
+    this.data.videos = (this.data.videos || []).filter(v => v.id !== id);
+    Object.keys(this.data.progress || {}).forEach(key => {
       if (key.startsWith(`${id}_`)) {
         delete this.data.progress[key];
       }
@@ -79,6 +78,7 @@ class FileDB {
 
   saveProgress(videoId, userId, timestamp, duration) {
     const key = `${videoId}_${userId}`;
+    if (!this.data.progress) this.data.progress = {};
     this.data.progress[key] = {
       videoId,
       userId,
@@ -91,7 +91,7 @@ class FileDB {
 
   getProgress(videoId, userId) {
     const key = `${videoId}_${userId}`;
-    return this.data.progress[key] || { timestamp: 0, duration: 0 };
+    return (this.data.progress && this.data.progress[key]) || { timestamp: 0, duration: 0 };
   }
 }
 
@@ -132,11 +132,18 @@ app.get('/api/video/:id', (req, res) => {
 // 3. Initiate Chunked Upload
 app.post('/api/upload/init', (req, res) => {
   try {
-    const { title, fileName, fileSize, totalChunks, mimeType } = req.body;
-    if (!title || !fileName || !fileSize || !totalChunks) {
-      return res.status(400).json({ error: 'Missing required parameters' });
+    let { title, fileName, fileSize, totalChunks, mimeType } = req.body;
+    
+    // Auto-fallback for title if missing
+    if (!title && fileName) {
+      title = fileName.replace(/\.[^/.]+$/, "");
     }
 
+    if (!fileName || fileSize === undefined || fileSize === null || totalChunks === undefined || totalChunks === null) {
+      return res.status(400).json({ error: 'Missing required upload parameters (fileName, fileSize, or totalChunks)' });
+    }
+
+    const safeTitle = title || 'Untitled Video';
     const uploadId = crypto.randomUUID();
     const sessionDir = path.join(CHUNKS_DIR, uploadId);
     fs.mkdirSync(sessionDir, { recursive: true });
@@ -145,10 +152,10 @@ app.post('/api/upload/init', (req, res) => {
     const metaPath = path.join(sessionDir, 'meta.json');
     fs.writeFileSync(metaPath, JSON.stringify({
       uploadId,
-      title,
+      title: safeTitle,
       fileName,
-      fileSize,
-      totalChunks,
+      fileSize: Number(fileSize),
+      totalChunks: Math.max(1, Number(totalChunks)),
       mimeType: mimeType || 'video/mp4',
       created: Date.now()
     }));
