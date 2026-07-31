@@ -82,8 +82,8 @@ class FileDB {
     this.data.progress[key] = {
       videoId,
       userId,
-      timestamp,
-      duration: duration || 0,
+      timestamp: Number(timestamp) || 0,
+      duration: Number(duration) || 0,
       updated_at: Date.now()
     };
     this.save();
@@ -102,9 +102,6 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
-
-// Raw body parser for binary chunks up to 50MB
-app.use('/api/upload/chunk', express.raw({ type: '*/*', limit: '50mb' }));
 
 // --- API ROUTES ---
 
@@ -134,16 +131,11 @@ app.post('/api/upload/init', (req, res) => {
   try {
     let { title, fileName, fileSize, totalChunks, mimeType } = req.body;
     
-    // Auto-fallback for title if missing
-    if (!title && fileName) {
-      title = fileName.replace(/\.[^/.]+$/, "");
+    if (!fileName) {
+      return res.status(400).json({ error: 'fileName is required' });
     }
 
-    if (!fileName || fileSize === undefined || fileSize === null || totalChunks === undefined || totalChunks === null) {
-      return res.status(400).json({ error: 'Missing required upload parameters (fileName, fileSize, or totalChunks)' });
-    }
-
-    const safeTitle = title || 'Untitled Video';
+    const safeTitle = title || fileName.replace(/\.[^/.]+$/, "") || 'Untitled Video';
     const uploadId = crypto.randomUUID();
     const sessionDir = path.join(CHUNKS_DIR, uploadId);
     fs.mkdirSync(sessionDir, { recursive: true });
@@ -154,8 +146,8 @@ app.post('/api/upload/init', (req, res) => {
       uploadId,
       title: safeTitle,
       fileName,
-      fileSize: Number(fileSize),
-      totalChunks: Math.max(1, Number(totalChunks)),
+      fileSize: Number(fileSize) || 0,
+      totalChunks: Math.max(1, Number(totalChunks) || 1),
       mimeType: mimeType || 'video/mp4',
       created: Date.now()
     }));
@@ -166,7 +158,7 @@ app.post('/api/upload/init', (req, res) => {
   }
 });
 
-// 4. Upload a Chunk
+// 4. Direct Stream Pipe Upload for Chunks (Zero RAM overhead, 100% reliable)
 app.post('/api/upload/chunk', (req, res) => {
   try {
     const uploadId = req.headers['x-upload-id'] || req.query.uploadId;
@@ -182,9 +174,17 @@ app.post('/api/upload/chunk', (req, res) => {
     }
 
     const chunkPath = path.join(sessionDir, `chunk_${chunkIndex}`);
-    fs.writeFileSync(chunkPath, req.body);
+    const writeStream = fs.createWriteStream(chunkPath);
 
-    res.json({ success: true, chunkIndex: Number(chunkIndex) });
+    req.pipe(writeStream);
+
+    writeStream.on('finish', () => {
+      res.json({ success: true, chunkIndex: Number(chunkIndex) });
+    });
+
+    writeStream.on('error', (err) => {
+      res.status(500).json({ error: err.message });
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -229,6 +229,9 @@ app.post('/api/upload/complete', async (req, res) => {
       writeStream.on('error', reject);
     });
 
+    // Check final file size
+    const stat = fs.statSync(finalFilePath);
+
     // Clean up temporary chunks
     fs.rmSync(sessionDir, { recursive: true, force: true });
 
@@ -237,7 +240,7 @@ app.post('/api/upload/complete', async (req, res) => {
       id: videoId,
       title: meta.title,
       filename: finalFilename,
-      filesize: meta.fileSize,
+      filesize: stat.size || meta.fileSize,
       mime_type: meta.mimeType,
       created_at: Date.now()
     };
