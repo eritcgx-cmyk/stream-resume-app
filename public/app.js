@@ -61,6 +61,7 @@ const playerModal = document.getElementById('playerModal');
 const closePlayerModal = document.getElementById('closePlayerModal');
 const playerVideoTitle = document.getElementById('playerVideoTitle');
 const mainVideoPlayer = document.getElementById('mainVideoPlayer');
+const embedVideoPlayer = document.getElementById('embedVideoPlayer');
 const playerResumeBadge = document.getElementById('playerResumeBadge');
 const playerResumeTime = document.getElementById('playerResumeTime');
 const saveToast = document.getElementById('saveToast');
@@ -145,6 +146,9 @@ function setupEventListeners() {
   mainVideoPlayer.addEventListener('timeupdate', updateTimeDisplays);
   mainVideoPlayer.addEventListener('pause', () => savePlaybackPosition(true));
   
+  // Fallback if browser doesn't support HEVC/H.265 natively
+  mainVideoPlayer.addEventListener('error', handleVideoError);
+
   // Close player modal on ESC key
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
@@ -463,7 +467,7 @@ async function handleUrlImportSubmit(e) {
 
   startUrlImportBtn.disabled = true;
   urlImportStatus.classList.remove('hidden');
-  urlImportText.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Transferring video directly from Google Drive to cloud server...';
+  urlImportText.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Connecting video stream...';
 
   try {
     const res = await fetch('/api/upload/url', {
@@ -475,7 +479,7 @@ async function handleUrlImportSubmit(e) {
     const data = await res.json();
     if (!data.success) throw new Error(data.error || 'Failed to import video from URL');
 
-    urlImportText.innerHTML = '<i class="fa-solid fa-circle-check" style="color:#10b981;"></i> Video imported successfully!';
+    urlImportText.innerHTML = '<i class="fa-solid fa-circle-check" style="color:#10b981;"></i> Video added to library!';
 
     setTimeout(() => {
       hideUploadModal();
@@ -517,8 +521,11 @@ async function openPlayer(videoId) {
   playerVideoTitle.textContent = video.title;
   playerResumeBadge.classList.add('hidden');
 
-  // Set streaming source
-  mainVideoPlayer.src = `/api/video/${videoId}/stream`;
+  // Reset player elements
+  mainVideoPlayer.classList.remove('hidden');
+  embedVideoPlayer.classList.add('hidden');
+  embedVideoPlayer.src = '';
+
   playerModal.classList.remove('hidden');
 
   // Fetch saved playback progress for active profile
@@ -533,24 +540,54 @@ async function openPlayer(videoId) {
     console.warn('Could not fetch saved progress', e);
   }
 
-  // Set initial seek when metadata loads
-  mainVideoPlayer.onloadedmetadata = () => {
-    durationDisplay.textContent = formatTime(mainVideoPlayer.duration);
+  // If video is from Google Drive, use instant universal stream embed player!
+  if (video.gdriveId) {
+    switchToEmbedPlayer(video.gdriveId, savedTime);
+  } else {
+    // Native HTML5 stream
+    mainVideoPlayer.src = `/api/video/${videoId}/stream`;
+    mainVideoPlayer.onloadedmetadata = () => {
+      durationDisplay.textContent = formatTime(mainVideoPlayer.duration);
 
-    if (savedTime > 5 && savedTime < mainVideoPlayer.duration - 10) {
-      mainVideoPlayer.currentTime = savedTime;
-      playerResumeTime.textContent = formatTime(savedTime);
-      playerResumeBadge.classList.remove('hidden');
-    }
+      if (savedTime > 5 && savedTime < mainVideoPlayer.duration - 10) {
+        mainVideoPlayer.currentTime = savedTime;
+        playerResumeTime.textContent = formatTime(savedTime);
+        playerResumeBadge.classList.remove('hidden');
+      }
 
-    mainVideoPlayer.play().catch(e => console.log('Autoplay prevented:', e));
-  };
+      mainVideoPlayer.play().catch(e => {
+        console.log('Autoplay prevented or unsupported codec:', e);
+      });
+    };
+  }
 
   // Start periodic auto-save (every 4 seconds)
   if (autoSaveInterval) clearInterval(autoSaveInterval);
   autoSaveInterval = setInterval(() => {
     savePlaybackPosition(false);
   }, 4000);
+}
+
+// Fallback to Universal Google Drive Embed Player for HEVC / Unsupported Codecs
+function handleVideoError() {
+  if (currentPlayingVideo && currentPlayingVideo.gdriveId) {
+    console.log('Switching to universal Google Drive player fallback...');
+    switchToEmbedPlayer(currentPlayingVideo.gdriveId);
+  }
+}
+
+function switchToEmbedPlayer(gdriveId, savedTime = 0) {
+  mainVideoPlayer.pause();
+  mainVideoPlayer.classList.add('hidden');
+  embedVideoPlayer.classList.remove('hidden');
+  embedVideoPlayer.src = `https://drive.google.com/file/d/${gdriveId}/preview`;
+
+  if (savedTime > 5) {
+    playerResumeTime.textContent = formatTime(savedTime);
+    playerResumeBadge.classList.remove('hidden');
+  }
+
+  durationDisplay.textContent = 'Multi-Hour Stream';
 }
 
 // Close Video Player
@@ -564,6 +601,7 @@ function closePlayer() {
 
   mainVideoPlayer.pause();
   mainVideoPlayer.src = '';
+  embedVideoPlayer.src = '';
   currentPlayingVideo = null;
   playerModal.classList.add('hidden');
   loadVideos();
@@ -571,12 +609,10 @@ function closePlayer() {
 
 // Save Current Playback Position
 async function savePlaybackPosition(showToastNotification = false) {
-  if (!currentPlayingVideo || mainVideoPlayer.paused || mainVideoPlayer.ended) return;
+  if (!currentPlayingVideo) return;
 
-  const timestamp = mainVideoPlayer.currentTime;
+  const timestamp = mainVideoPlayer.currentTime || 0;
   const duration = mainVideoPlayer.duration || 0;
-
-  if (timestamp === 0) return;
 
   try {
     await fetch('/api/progress', {
@@ -600,7 +636,7 @@ async function savePlaybackPosition(showToastNotification = false) {
 
 // Jump playback time +/-
 function jumpTime(seconds) {
-  if (!mainVideoPlayer) return;
+  if (!mainVideoPlayer || mainVideoPlayer.classList.contains('hidden')) return;
   mainVideoPlayer.currentTime = Math.max(0, Math.min(mainVideoPlayer.duration, mainVideoPlayer.currentTime + seconds));
 }
 

@@ -64,18 +64,9 @@ class FileDB {
   }
 
   addVideo(video) {
-    // Remove duplicate if same ID
     this.data.videos = (this.data.videos || []).filter(v => v.id !== video.id);
     this.data.videos.push(video);
     this.save();
-  }
-
-  updateVideo(id, updates) {
-    const v = this.getVideo(id);
-    if (v) {
-      Object.assign(v, updates);
-      this.save();
-    }
   }
 
   deleteVideo(id) {
@@ -346,7 +337,7 @@ app.post('/api/upload/complete', async (req, res) => {
   }
 });
 
-// 6. Direct Google Drive / URL Import Endpoint (Instant Stream Proxy + Automatic Bypass)
+// 6. Direct Google Drive / URL Import Endpoint (Instant Stream Proxy + Google Drive Embed fallback)
 app.post('/api/upload/url', async (req, res) => {
   try {
     const { url, title } = req.body;
@@ -372,6 +363,7 @@ app.post('/api/upload/url', async (req, res) => {
       id: videoId,
       title: safeTitle,
       filename: finalFilename,
+      gdriveId: gdriveId || null,
       externalStreamUrl: directStreamUrl,
       filesize: 21442562608, // ~21.4 GB
       mime_type: 'video/mp4',
@@ -408,20 +400,18 @@ app.delete('/api/video/:id', (req, res) => {
   }
 });
 
-// 8. Video Streaming Endpoint (Proxying Google Drive or Local Disk HTTP 206 Partial Content)
+// 8. Video Streaming Endpoint
 app.get('/api/video/:id/stream', (req, res) => {
   try {
     const video = db.getVideo(req.params.id);
 
     if (!video) return res.status(404).json({ error: 'Video not found' });
 
-    // 1. If video has a direct Google Drive stream URL, proxy range stream instantly!
     if (video.externalStreamUrl) {
       console.log(`Streaming Google Drive video via stream proxy: ${video.title}`);
       return proxyExternalStream(video.externalStreamUrl, req, res);
     }
 
-    // 2. Local disk file stream
     const videoPath = path.join(UPLOADS_DIR, video.filename);
     if (!fs.existsSync(videoPath)) {
       return res.status(404).json({ error: 'Video file missing from storage' });

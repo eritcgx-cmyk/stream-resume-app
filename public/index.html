@@ -48,7 +48,7 @@
         <p>Upload 9+ hour videos from your PC or import directly from Google Drive, stream on any device, and automatically resume watch progress.</p>
       </div>
       <div class="hero-badge">
-        <div class="badge-item"><i class="fa-brands fa-google-drive"></i> Google Drive Cloud Import</div>
+        <div class="badge-item"><i class="fa-brands fa-google-drive"></i> Universal Codec Playback</div>
         <div class="badge-item"><i class="fa-solid fa-infinity"></i> 9+ Hour Streaming</div>
         <div class="badge-item"><i class="fa-solid fa-bookmark"></i> Cross-Device Resume</div>
       </div>
@@ -168,13 +168,13 @@
           <div class="form-group">
             <label for="urlLinkInput"><i class="fa-brands fa-google-drive"></i> Google Drive or Direct Video Link</label>
             <input type="url" id="urlLinkInput" placeholder="https://drive.google.com/file/d/.../view?usp=drive_link" required>
-            <div class="input-hint">Paste your Google Drive link or video URL. Cloud-to-cloud transfer directly to your site!</div>
+            <div class="input-hint">Paste your Google Drive link or video URL. Universal playback on all browsers & devices!</div>
           </div>
 
           <!-- URL Import Loading Status -->
           <div id="urlImportStatus" class="upload-progress-section hidden">
             <div class="progress-details">
-              <span id="urlImportText"><i class="fa-solid fa-spinner fa-spin"></i> Downloading video directly from Google Drive...</span>
+              <span id="urlImportText"><i class="fa-solid fa-spinner fa-spin"></i> Connecting video stream...</span>
             </div>
           </div>
 
@@ -189,7 +189,7 @@
     </div>
   </div>
 
-  <!-- Video Player Modal / Page Overlay -->
+  <!-- Universal Video Player Modal -->
   <div id="playerModal" class="modal-overlay player-modal-overlay hidden">
     <div class="player-container glass-panel">
       <!-- Player Header -->
@@ -203,11 +203,10 @@
         <button id="closePlayerModal" class="btn-close">&times;</button>
       </div>
 
-      <!-- HTML5 Video Player with HTTP Range Stream -->
+      <!-- Dual Player Wrapper (Native HTML5 + Universal Drive Embed Stream Fallback) -->
       <div class="video-wrapper">
-        <video id="mainVideoPlayer" controls preload="metadata" playsinline>
-          Your browser does not support HTML5 video streaming.
-        </video>
+        <video id="mainVideoPlayer" controls preload="metadata" playsinline></video>
+        <iframe id="embedVideoPlayer" class="embed-player hidden" frameborder="0" allowfullscreen allow="autoplay"></iframe>
 
         <!-- Toast notification for position saving -->
         <div id="saveToast" class="save-toast hidden">
