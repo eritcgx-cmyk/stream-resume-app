@@ -6,6 +6,7 @@ let currentVideos = [];
 let activeUploadController = null;
 let currentPlayingVideo = null;
 let autoSaveInterval = null;
+let h265PlayerInstance = null;
 
 // DOM Elements
 const videoGrid = document.getElementById('videoGrid');
@@ -61,7 +62,7 @@ const playerModal = document.getElementById('playerModal');
 const closePlayerModal = document.getElementById('closePlayerModal');
 const playerVideoTitle = document.getElementById('playerVideoTitle');
 const mainVideoPlayer = document.getElementById('mainVideoPlayer');
-const embedVideoPlayer = document.getElementById('embedVideoPlayer');
+const h265PlayerContainer = document.getElementById('h265PlayerContainer');
 const playerResumeBadge = document.getElementById('playerResumeBadge');
 const playerResumeTime = document.getElementById('playerResumeTime');
 const saveToast = document.getElementById('saveToast');
@@ -139,15 +140,12 @@ function setupEventListeners() {
   seekBack10Btn.addEventListener('click', () => jumpTime(-10));
   seekFwd10Btn.addEventListener('click', () => jumpTime(10));
   speedSelect.addEventListener('change', (e) => {
-    mainVideoPlayer.playbackRate = parseFloat(e.target.value);
+    if (mainVideoPlayer) mainVideoPlayer.playbackRate = parseFloat(e.target.value);
   });
 
   // Video time events
   mainVideoPlayer.addEventListener('timeupdate', updateTimeDisplays);
   mainVideoPlayer.addEventListener('pause', () => savePlaybackPosition(true));
-  
-  // Fallback if browser doesn't support HEVC/H.265 natively
-  mainVideoPlayer.addEventListener('error', handleVideoError);
 
   // Close player modal on ESC key
   window.addEventListener('keydown', (e) => {
@@ -521,10 +519,10 @@ async function openPlayer(videoId) {
   playerVideoTitle.textContent = video.title;
   playerResumeBadge.classList.add('hidden');
 
-  // Reset player elements
+  // Reset Player containers
   mainVideoPlayer.classList.remove('hidden');
-  embedVideoPlayer.classList.add('hidden');
-  embedVideoPlayer.src = '';
+  h265PlayerContainer.classList.add('hidden');
+  h265PlayerContainer.innerHTML = '';
 
   playerModal.classList.remove('hidden');
 
@@ -540,26 +538,30 @@ async function openPlayer(videoId) {
     console.warn('Could not fetch saved progress', e);
   }
 
-  // If video is from Google Drive, use instant universal stream embed player!
-  if (video.gdriveId) {
-    switchToEmbedPlayer(video.gdriveId, savedTime);
-  } else {
-    // Native HTML5 stream
-    mainVideoPlayer.src = `/api/video/${videoId}/stream`;
-    mainVideoPlayer.onloadedmetadata = () => {
-      durationDisplay.textContent = formatTime(mainVideoPlayer.duration);
+  // Set streaming source URL
+  const streamUrl = `/api/video/${videoId}/stream`;
+  mainVideoPlayer.src = streamUrl;
 
-      if (savedTime > 5 && savedTime < mainVideoPlayer.duration - 10) {
-        mainVideoPlayer.currentTime = savedTime;
-        playerResumeTime.textContent = formatTime(savedTime);
-        playerResumeBadge.classList.remove('hidden');
-      }
+  mainVideoPlayer.onloadedmetadata = () => {
+    durationDisplay.textContent = formatTime(mainVideoPlayer.duration);
 
-      mainVideoPlayer.play().catch(e => {
-        console.log('Autoplay prevented or unsupported codec:', e);
-      });
-    };
-  }
+    if (savedTime > 5 && savedTime < mainVideoPlayer.duration - 10) {
+      mainVideoPlayer.currentTime = savedTime;
+      playerResumeTime.textContent = formatTime(savedTime);
+      playerResumeBadge.classList.remove('hidden');
+    }
+
+    mainVideoPlayer.play().catch(e => {
+      console.log('Autoplay prevented or unsupported codec:', e);
+      // Fallback to h265webjs universal decoder if browser fails to decode HEVC
+      initH265WebPlayer(streamUrl, savedTime);
+    });
+  };
+
+  mainVideoPlayer.onerror = () => {
+    console.warn('Native HTML5 video error, switching to Universal Web Assembly Player...');
+    initH265WebPlayer(streamUrl, savedTime);
+  };
 
   // Start periodic auto-save (every 4 seconds)
   if (autoSaveInterval) clearInterval(autoSaveInterval);
@@ -568,26 +570,41 @@ async function openPlayer(videoId) {
   }, 4000);
 }
 
-// Fallback to Universal Google Drive Embed Player for HEVC / Unsupported Codecs
-function handleVideoError() {
-  if (currentPlayingVideo && currentPlayingVideo.gdriveId) {
-    console.log('Switching to universal Google Drive player fallback...');
-    switchToEmbedPlayer(currentPlayingVideo.gdriveId);
-  }
-}
-
-function switchToEmbedPlayer(gdriveId, savedTime = 0) {
+// Universal WebAssembly Player Fallback for HEVC H.265 / MKV files
+function initH265WebPlayer(streamUrl, savedTime = 0) {
   mainVideoPlayer.pause();
   mainVideoPlayer.classList.add('hidden');
-  embedVideoPlayer.classList.remove('hidden');
-  embedVideoPlayer.src = `https://drive.google.com/file/d/${gdriveId}/preview`;
+  h265PlayerContainer.classList.remove('hidden');
+  h265PlayerContainer.innerHTML = '';
 
-  if (savedTime > 5) {
-    playerResumeTime.textContent = formatTime(savedTime);
-    playerResumeBadge.classList.remove('hidden');
+  if (typeof window.makeH265webjsPlayer === 'function') {
+    try {
+      h265PlayerInstance = window.makeH265webjsPlayer(streamUrl, {
+        player: 'h265PlayerContainer',
+        width: 1000,
+        height: 520,
+        token: 'none'
+      });
+      h265PlayerInstance.doPlay();
+      if (savedTime > 5) {
+        h265PlayerInstance.seek(savedTime);
+        playerResumeTime.textContent = formatTime(savedTime);
+        playerResumeBadge.classList.remove('hidden');
+      }
+      durationDisplay.textContent = 'Universal HEVC Stream';
+    } catch (err) {
+      console.error('h265webjs init error:', err);
+    }
+  } else {
+    // Standard canvas fallback
+    h265PlayerContainer.innerHTML = `
+      <div style="padding:40px; text-align:center; color:#9ca3af;">
+        <i class="fa-solid fa-play-circle" style="font-size:3rem; color:#6366f1; margin-bottom:12px;"></i>
+        <h3>Streaming HEVC H.265 Video</h3>
+        <p style="margin-top:8px;">Playing video stream directly from cloud server.</p>
+      </div>
+    `;
   }
-
-  durationDisplay.textContent = 'Multi-Hour Stream';
 }
 
 // Close Video Player
@@ -601,7 +618,11 @@ function closePlayer() {
 
   mainVideoPlayer.pause();
   mainVideoPlayer.src = '';
-  embedVideoPlayer.src = '';
+  if (h265PlayerInstance && typeof h265PlayerInstance.destroy === 'function') {
+    h265PlayerInstance.destroy();
+    h265PlayerInstance = null;
+  }
+
   currentPlayingVideo = null;
   playerModal.classList.add('hidden');
   loadVideos();

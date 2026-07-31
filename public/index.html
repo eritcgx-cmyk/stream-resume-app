@@ -15,6 +15,9 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
   <link rel="stylesheet" href="style.css">
+
+  <!-- h265webjs Universal HEVC/H.265 Web Decoder -->
+  <script src="https://unpkg.com/h265webjs@latest/dist/h265webjs.js"></script>
 </head>
 <body>
   <!-- Dynamic Animated Background -->
@@ -48,7 +51,7 @@
         <p>Upload 9+ hour videos from your PC or import directly from Google Drive, stream on any device, and automatically resume watch progress.</p>
       </div>
       <div class="hero-badge">
-        <div class="badge-item"><i class="fa-brands fa-google-drive"></i> Universal Codec Playback</div>
+        <div class="badge-item"><i class="fa-solid fa-microchip"></i> H.264 / HEVC H.265 Universal Playback</div>
         <div class="badge-item"><i class="fa-solid fa-infinity"></i> 9+ Hour Streaming</div>
         <div class="badge-item"><i class="fa-solid fa-bookmark"></i> Cross-Device Resume</div>
       </div>
@@ -203,10 +206,10 @@
         <button id="closePlayerModal" class="btn-close">&times;</button>
       </div>
 
-      <!-- Dual Player Wrapper (Native HTML5 + Universal Drive Embed Stream Fallback) -->
+      <!-- Player Wrapper -->
       <div class="video-wrapper">
         <video id="mainVideoPlayer" controls preload="metadata" playsinline></video>
-        <iframe id="embedVideoPlayer" class="embed-player hidden" frameborder="0" allowfullscreen allow="autoplay"></iframe>
+        <div id="h265PlayerContainer" class="h265-container hidden"></div>
 
         <!-- Toast notification for position saving -->
         <div id="saveToast" class="save-toast hidden">
