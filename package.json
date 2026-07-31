@@ -1,0 +1,15 @@
+{
+  "name": "video-resume-app",
+  "version": "1.0.0",
+  "description": "Cloud video streaming website with chunked upload support (for 9+ hour videos) and automatic resume playback tracking.",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "cors": "^2.8.5"
+  }
+}

@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StreamResume — Large Video Cloud Player</title>
+  <meta name="description" content="Upload 9+ hour videos with resumable chunked upload and auto-resume playback tracking across sessions.">
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Dynamic Animated Background -->
+  <div class="bg-glow orb-1"></div>
+  <div class="bg-glow orb-2"></div>
+  <div class="bg-glow orb-3"></div>
+
+  <div class="app-container">
+    <!-- Header -->
+    <header class="navbar">
+      <div class="logo">
+        <div class="logo-icon"><i class="fa-solid fa-play"></i></div>
+        <span class="logo-text">Stream<span class="highlight">Resume</span></span>
+      </div>
+      <div class="nav-actions">
+        <button id="openUploadBtn" class="btn btn-primary">
+          <i class="fa-solid fa-cloud-arrow-up"></i> Upload Video
+        </button>
+      </div>
+    </header>
+
+    <!-- Hero / Info Banner -->
+    <section class="hero-card glass-panel">
+      <div class="hero-content">
+        <h1>Cloud Video Player with <span class="gradient-text">Auto-Resume</span></h1>
+        <p>Supports massive multi-gigabyte & 9+ hour video uploads with chunked transmission and seamless timestamp tracking across devices.</p>
+      </div>
+      <div class="hero-badge">
+        <div class="badge-item"><i class="fa-solid fa-infinity"></i> Unlimited Duration</div>
+        <div class="badge-item"><i class="fa-solid fa-bookmark"></i> Instant Resume</div>
+        <div class="badge-item"><i class="fa-solid fa-bolt"></i> Chunked Uploads</div>
+      </div>
+    </section>
+
+    <!-- Main Content: Video Grid -->
+    <main class="main-section">
+      <div class="section-header">
+        <h2><i class="fa-solid fa-film"></i> Your Video Library</h2>
+        <button id="refreshBtn" class="btn btn-icon" title="Refresh List"><i class="fa-solid fa-rotate-right"></i></button>
+      </div>
+
+      <div id="videoGrid" class="video-grid">
+        <!-- Skeleton loaders initially -->
+        <div class="video-card skeleton"></div>
+        <div class="video-card skeleton"></div>
+        <div class="video-card skeleton"></div>
+      </div>
+
+      <!-- Empty State -->
+      <div id="emptyState" class="empty-state glass-panel hidden">
+        <div class="empty-icon"><i class="fa-solid fa-video-slash"></i></div>
+        <h3>No videos uploaded yet</h3>
+        <p>Upload a video of any length (up to 9+ hours) to get started!</p>
+        <button id="emptyUploadBtn" class="btn btn-primary"><i class="fa-solid fa-plus"></i> Upload First Video</button>
+      </div>
+    </main>
+  </div>
+
+  <!-- Upload Modal -->
+  <div id="uploadModal" class="modal-overlay hidden">
+    <div class="modal-content glass-panel">
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-cloud-arrow-up"></i> Upload Large Video</h3>
+        <button id="closeUploadModal" class="btn-close">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Upload Form -->
+        <form id="uploadForm">
+          <div class="form-group">
+            <label for="videoTitle">Video Title</label>
+            <input type="text" id="videoTitle" placeholder="e.g. 9-Hour Study Session / Full Stream" required>
+          </div>
+
+          <div class="drop-zone" id="dropZone">
+            <input type="file" id="videoFileInput" accept="video/*" class="file-input">
+            <div class="drop-zone-content">
+              <i class="fa-solid fa-cloud-arrow-up drop-icon"></i>
+              <p class="drop-title">Drag & drop your video file here</p>
+              <p class="drop-subtitle">or click to browse from your computer</p>
+              <div class="file-spec">Supports MP4, WebM, MKV, MOV (Chunked 5MB chunks)</div>
+            </div>
+            <div id="selectedFileInfo" class="selected-file-info hidden">
+              <i class="fa-solid fa-file-video"></i>
+              <span id="selectedFileName">filename.mp4</span>
+              <span id="selectedFileSize" class="file-size-badge">0 MB</span>
+            </div>
+          </div>
+
+          <!-- Progress Section -->
+          <div id="uploadProgressSection" class="upload-progress-section hidden">
+            <div class="progress-details">
+              <span id="uploadStatusText">Uploading chunk 1 of 100...</span>
+              <span id="uploadPercent">0%</span>
+            </div>
+            <div class="progress-bar-container">
+              <div id="uploadProgressBar" class="progress-bar-fill"></div>
+            </div>
+            <div class="progress-stats">
+              <span id="uploadSpeed">0 MB/s</span>
+              <span id="uploadEta">Calculating ETA...</span>
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" id="cancelUploadBtn" class="btn btn-secondary">Cancel</button>
+            <button type="submit" id="startUploadBtn" class="btn btn-primary" disabled>
+              <i class="fa-solid fa-upload"></i> Start Resumable Upload
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Video Player Modal / Page Overlay -->
+  <div id="playerModal" class="modal-overlay player-modal-overlay hidden">
+    <div class="player-container glass-panel">
+      <!-- Player Header -->
+      <div class="player-header">
+        <div class="player-title-info">
+          <h2 id="playerVideoTitle">Video Title</h2>
+          <span id="playerResumeBadge" class="resume-badge hidden">
+            <i class="fa-solid fa-bookmark"></i> Auto-Resumed from <span id="playerResumeTime">00:00:00</span>
+          </span>
+        </div>
+        <button id="closePlayerModal" class="btn-close">&times;</button>
+      </div>
+
+      <!-- HTML5 Video Player with HTTP Range Stream -->
+      <div class="video-wrapper">
+        <video id="mainVideoPlayer" controls preload="metadata">
+          Your browser does not support HTML5 video streaming.
+        </video>
+
+        <!-- Toast notification for position saving -->
+        <div id="saveToast" class="save-toast hidden">
+          <i class="fa-solid fa-check"></i> Position saved
+        </div>
+      </div>
+
+      <!-- Player Custom Controls / Quick Stats -->
+      <div class="player-footer">
+        <div class="quick-controls">
+          <button id="seekBack10Btn" class="btn btn-secondary btn-sm" title="Jump Back 10s"><i class="fa-solid fa-rotate-left"></i> -10s</button>
+          <button id="seekFwd10Btn" class="btn btn-secondary btn-sm" title="Jump Forward 10s"><i class="fa-solid fa-rotate-right"></i> +10s</button>
+          
+          <div class="speed-selector">
+            <label><i class="fa-solid fa-gauge-high"></i> Speed:</label>
+            <select id="speedSelect" class="custom-select">
+              <option value="0.5">0.5x</option>
+              <option value="0.75">0.75x</option>
+              <option value="1" selected>1.0x (Normal)</option>
+              <option value="1.25">1.25x</option>
+              <option value="1.5">1.5x</option>
+              <option value="2">2.0x</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="progress-summary">
+          <span id="currentTimeDisplay">00:00:00</span> / <span id="durationDisplay">00:00:00</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
