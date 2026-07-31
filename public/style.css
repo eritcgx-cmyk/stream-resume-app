@@ -106,6 +106,12 @@ body {
   margin-bottom: 28px;
 }
 
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
 .logo {
   display: flex;
   align-items: center;
@@ -310,6 +316,7 @@ body {
   justify-content: center;
   position: relative;
   overflow: hidden;
+  cursor: pointer;
 }
 
 .card-thumbnail i.play-icon {
@@ -478,6 +485,19 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.profile-help-text {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.profile-help-text code {
+  background: rgba(99, 102, 241, 0.2);
+  color: #a5b4fc;
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 
 .btn-close {

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>StreamResume — Large Video Cloud Player</title>
-  <meta name="description" content="Upload 9+ hour videos with resumable chunked upload and auto-resume playback tracking across sessions.">
+  <meta name="description" content="Upload 9+ hour videos with resumable chunked upload and auto-resume playback tracking across devices.">
   
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -30,6 +30,11 @@
         <span class="logo-text">Stream<span class="highlight">Resume</span></span>
       </div>
       <div class="nav-actions">
+        <!-- Device Sync Profile Button -->
+        <button id="profileSyncBtn" class="btn btn-secondary" title="Sync progress across devices">
+          <i class="fa-solid fa-user-gear"></i> Sync Profile: <span id="currentProfileName">Default</span>
+        </button>
+
         <button id="openUploadBtn" class="btn btn-primary">
           <i class="fa-solid fa-cloud-arrow-up"></i> Upload Video
         </button>
@@ -39,20 +44,20 @@
     <!-- Hero / Info Banner -->
     <section class="hero-card glass-panel">
       <div class="hero-content">
-        <h1>Cloud Video Player with <span class="gradient-text">Auto-Resume</span></h1>
-        <p>Supports massive multi-gigabyte & 9+ hour video uploads with chunked transmission and seamless timestamp tracking across devices.</p>
+        <h1>Cloud Video Streaming <span class="gradient-text">Across All Devices</span></h1>
+        <p>Upload 9+ hour videos from your PC, stream them on your phone, tablet, or smart TV, and automatically resume watch progress across all your devices.</p>
       </div>
       <div class="hero-badge">
-        <div class="badge-item"><i class="fa-solid fa-infinity"></i> Unlimited Duration</div>
-        <div class="badge-item"><i class="fa-solid fa-bookmark"></i> Instant Resume</div>
-        <div class="badge-item"><i class="fa-solid fa-bolt"></i> Chunked Uploads</div>
+        <div class="badge-item"><i class="fa-solid fa-mobile-screen-button"></i> Multi-Device Sync</div>
+        <div class="badge-item"><i class="fa-solid fa-infinity"></i> 9+ Hour Streaming</div>
+        <div class="badge-item"><i class="fa-solid fa-bookmark"></i> Cross-Device Resume</div>
       </div>
     </section>
 
     <!-- Main Content: Video Grid -->
     <main class="main-section">
       <div class="section-header">
-        <h2><i class="fa-solid fa-film"></i> Your Video Library</h2>
+        <h2><i class="fa-solid fa-film"></i> Global Video Library</h2>
         <button id="refreshBtn" class="btn btn-icon" title="Refresh List"><i class="fa-solid fa-rotate-right"></i></button>
       </div>
 
@@ -67,10 +72,30 @@
       <div id="emptyState" class="empty-state glass-panel hidden">
         <div class="empty-icon"><i class="fa-solid fa-video-slash"></i></div>
         <h3>No videos uploaded yet</h3>
-        <p>Upload a video of any length (up to 9+ hours) to get started!</p>
+        <p>Upload a video of any length (up to 9+ hours) to stream it anywhere!</p>
         <button id="emptyUploadBtn" class="btn btn-primary"><i class="fa-solid fa-plus"></i> Upload First Video</button>
       </div>
     </main>
+  </div>
+
+  <!-- Profile Sync Modal -->
+  <div id="profileModal" class="modal-overlay hidden">
+    <div class="modal-content glass-panel">
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-user-gear"></i> Device Sync Profile</h3>
+        <button id="closeProfileModal" class="btn-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="profile-help-text">Enter a Profile Sync Name (e.g. <code>MyPhone</code> or <code>Eri</code>). Use the same profile name on all your devices to automatically sync watch positions across PC, Mobile, and Smart TV.</p>
+        <div class="form-group" style="margin-top:16px;">
+          <label for="profileInput">Sync Profile Name / Code</label>
+          <input type="text" id="profileInput" placeholder="Enter sync profile name" required>
+        </div>
+        <div class="modal-footer">
+          <button type="button" id="saveProfileBtn" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> Save & Sync Devices</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Upload Modal -->
@@ -146,13 +171,13 @@
 
       <!-- HTML5 Video Player with HTTP Range Stream -->
       <div class="video-wrapper">
-        <video id="mainVideoPlayer" controls preload="metadata">
+        <video id="mainVideoPlayer" controls preload="metadata" playsinline>
           Your browser does not support HTML5 video streaming.
         </video>
 
         <!-- Toast notification for position saving -->
         <div id="saveToast" class="save-toast hidden">
-          <i class="fa-solid fa-check"></i> Position saved
+          <i class="fa-solid fa-check"></i> Position synced across devices
         </div>
       </div>
 

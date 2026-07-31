@@ -1,5 +1,5 @@
 // Application State & User Device Identity
-const USER_ID = getOrCreateUserId();
+let USER_ID = getOrCreateUserId();
 const CHUNK_SIZE = 5 * 1024 * 1024; // 5 MB chunks for reliable streaming upload
 
 let currentVideos = [];
@@ -11,6 +11,14 @@ let autoSaveInterval = null;
 const videoGrid = document.getElementById('videoGrid');
 const emptyState = document.getElementById('emptyState');
 const refreshBtn = document.getElementById('refreshBtn');
+
+// Profile Sync Elements
+const profileSyncBtn = document.getElementById('profileSyncBtn');
+const currentProfileName = document.getElementById('currentProfileName');
+const profileModal = document.getElementById('profileModal');
+const closeProfileModal = document.getElementById('closeProfileModal');
+const profileInput = document.getElementById('profileInput');
+const saveProfileBtn = document.getElementById('saveProfileBtn');
 
 // Upload Modal Elements
 const openUploadBtn = document.getElementById('openUploadBtn');
@@ -51,6 +59,7 @@ const durationDisplay = document.getElementById('durationDisplay');
 
 // Initialize App
 document.addEventListener('DOMContentLoaded', () => {
+  updateProfileUI();
   setupEventListeners();
   loadVideos();
 });
@@ -59,10 +68,15 @@ document.addEventListener('DOMContentLoaded', () => {
 function getOrCreateUserId() {
   let uid = localStorage.getItem('stream_resume_user_id');
   if (!uid) {
-    uid = 'user_' + Math.random().toString(36).substring(2, 11) + '_' + Date.now();
+    uid = 'Default';
     localStorage.setItem('stream_resume_user_id', uid);
   }
   return uid;
+}
+
+function updateProfileUI() {
+  currentProfileName.textContent = USER_ID;
+  profileInput.value = USER_ID;
 }
 
 // Event Listeners
@@ -72,6 +86,11 @@ function setupEventListeners() {
   emptyUploadBtn.addEventListener('click', showUploadModal);
   closeUploadModal.addEventListener('click', hideUploadModal);
   cancelUploadBtn.addEventListener('click', hideUploadModal);
+
+  // Profile modal listeners
+  profileSyncBtn.addEventListener('click', () => profileModal.classList.remove('hidden'));
+  closeProfileModal.addEventListener('click', () => profileModal.classList.add('hidden'));
+  saveProfileBtn.addEventListener('click', handleProfileSave);
 
   // Drag and drop setup
   dropZone.addEventListener('dragover', (e) => {
@@ -112,8 +131,20 @@ function setupEventListeners() {
     if (e.key === 'Escape') {
       if (!playerModal.classList.contains('hidden')) closePlayer();
       if (!uploadModal.classList.contains('hidden')) hideUploadModal();
+      if (!profileModal.classList.contains('hidden')) profileModal.classList.add('hidden');
     }
   });
+}
+
+function handleProfileSave() {
+  const newName = profileInput.value.trim();
+  if (!newName) return;
+
+  USER_ID = newName;
+  localStorage.setItem('stream_resume_user_id', USER_ID);
+  updateProfileUI();
+  profileModal.classList.add('hidden');
+  loadVideos(); // Reload grid with updated profile watch progress
 }
 
 // Format bytes to human readable string
@@ -172,11 +203,11 @@ async function renderVideoGrid(videos) {
     const card = document.createElement('div');
     card.className = 'video-card';
 
-    // Fetch progress for this video
+    // Fetch progress for this video & profile
     let progressSeconds = 0;
     let durationSeconds = 0;
     try {
-      const pRes = await fetch(`/api/progress/${video.id}?userId=${USER_ID}`);
+      const pRes = await fetch(`/api/progress/${video.id}?userId=${encodeURIComponent(USER_ID)}`);
       const pData = await pRes.json();
       if (pData.success && pData.progress) {
         progressSeconds = pData.progress.timestamp || 0;
@@ -244,7 +275,6 @@ function handleFileSelected() {
   selectedFileInfo.classList.remove('hidden');
 
   if (!videoTitleInput.value.trim()) {
-    // Auto-fill title with file name without extension
     const nameWithoutExt = file.name.replace(/\.[^/.]+$/, "");
     videoTitleInput.value = nameWithoutExt;
   }
@@ -341,10 +371,9 @@ async function handleUploadSubmit(e) {
 
       uploadedBytes += (end - start);
 
-      // Calculate stats
       const percent = Math.round((uploadedBytes / file.size) * 100);
-      const elapsedTime = (Date.now() - startTime) / 1000; // in seconds
-      const speed = uploadedBytes / elapsedTime; // bytes per sec
+      const elapsedTime = (Date.now() - startTime) / 1000;
+      const speed = uploadedBytes / elapsedTime;
       const remainingBytes = file.size - uploadedBytes;
       const etaSeconds = speed > 0 ? Math.round(remainingBytes / speed) : 0;
 
@@ -355,7 +384,7 @@ async function handleUploadSubmit(e) {
     }
 
     // 3. Complete and assemble upload
-    uploadStatusText.textContent = 'Assembling final video file on server...';
+    uploadStatusText.textContent = 'Assembling video file on server...';
     uploadEta.textContent = 'Finalizing...';
 
     const completeRes = await fetch('/api/upload/complete', {
@@ -368,7 +397,6 @@ async function handleUploadSubmit(e) {
     const completeData = await completeRes.json();
     if (!completeData.success) throw new Error(completeData.error || 'Failed to complete video assembly');
 
-    // Success!
     uploadStatusText.textContent = 'Upload completed successfully!';
     uploadProgressBar.style.backgroundColor = '#10b981';
 
@@ -421,10 +449,10 @@ async function openPlayer(videoId) {
   mainVideoPlayer.src = `/api/video/${videoId}/stream`;
   playerModal.classList.remove('hidden');
 
-  // Fetch saved playback progress
+  // Fetch saved playback progress for active profile
   let savedTime = 0;
   try {
-    const res = await fetch(`/api/progress/${videoId}?userId=${USER_ID}`);
+    const res = await fetch(`/api/progress/${videoId}?userId=${encodeURIComponent(USER_ID)}`);
     const data = await res.json();
     if (data.success && data.progress) {
       savedTime = data.progress.timestamp || 0;
@@ -466,7 +494,7 @@ function closePlayer() {
   mainVideoPlayer.src = '';
   currentPlayingVideo = null;
   playerModal.classList.add('hidden');
-  loadVideos(); // Refresh list to show updated progress bars
+  loadVideos();
 }
 
 // Save Current Playback Position
