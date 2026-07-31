@@ -105,8 +105,8 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Helper function to stream download from URL following redirects (including Google Drive confirm tokens)
-function downloadUrlToFile(targetUrl, destinationPath, maxRedirects = 10) {
+// Helper to download raw URL following redirects
+function downloadRawStream(targetUrl, destinationPath, maxRedirects = 10) {
   return new Promise((resolve, reject) => {
     if (maxRedirects <= 0) return reject(new Error('Too many redirects'));
 
@@ -117,25 +117,27 @@ function downloadUrlToFile(targetUrl, destinationPath, maxRedirects = 10) {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
       }
     }, (response) => {
-      // Handle HTTP redirects (301, 302, 303, 307, 308)
       if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
         let redirectUrl = response.headers.location;
         if (!redirectUrl.startsWith('http')) {
           const parsed = new URL(targetUrl);
           redirectUrl = `${parsed.protocol}//${parsed.host}${redirectUrl}`;
         }
-        return downloadUrlToFile(redirectUrl, destinationPath, maxRedirects - 1).then(resolve).catch(reject);
+        return downloadRawStream(redirectUrl, destinationPath, maxRedirects - 1).then(resolve).catch(reject);
       }
 
       if (response.statusCode !== 200) {
-        return reject(new Error(`Server responded with status code ${response.statusCode}`));
+        return reject(new Error(`HTTP ${response.statusCode}`));
       }
 
       const fileStream = fs.createWriteStream(destinationPath);
       response.pipe(fileStream);
 
       fileStream.on('finish', () => {
-        fileStream.close(resolve);
+        fileStream.close(() => resolve({
+          contentType: response.headers['content-type'],
+          contentLength: Number(response.headers['content-length']) || fs.statSync(destinationPath).size
+        }));
       });
 
       fileStream.on('error', (err) => {
@@ -149,19 +151,45 @@ function downloadUrlToFile(targetUrl, destinationPath, maxRedirects = 10) {
   });
 }
 
-// Convert Google Drive view URL to direct export stream URL
-function transformGoogleDriveUrl(rawUrl) {
-  let fileId = null;
+// Google Drive 20GB Virus Scan Bypass Link Extractor
+async function fetchGoogleDriveDirectInfo(fileId) {
+  const initialUrl = `https://drive.usercontent.google.com/download?id=${fileId}&export=download`;
+
+  return new Promise((resolve, reject) => {
+    https.get(initialUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      }
+    }, (res) => {
+      let html = '';
+      res.on('data', chunk => html += chunk);
+      res.on('end', () => {
+        const uuidMatch = html.match(/name="uuid"\s+value="([^"]+)"/);
+        const confirmMatch = html.match(/name="confirm"\s+value="([^"]+)"/);
+        const titleMatch = html.match(/<span class="uc-name-size"><a[^>]*>(.*?)<\/a>/);
+
+        const title = titleMatch ? titleMatch[1].trim() : 'Google Drive Video';
+
+        if (uuidMatch && confirmMatch) {
+          const directUrl = `https://drive.usercontent.google.com/download?id=${fileId}&export=download&confirm=${confirmMatch[1]}&uuid=${uuidMatch[1]}`;
+          resolve({ title, directUrl });
+        } else {
+          // Fallback standard export URL
+          const fallbackUrl = `https://drive.google.com/uc?export=download&id=${fileId}&confirm=t`;
+          resolve({ title, directUrl: fallbackUrl });
+        }
+      });
+    }).on('error', reject);
+  });
+}
+
+// Helper to extract Google Drive File ID from shared links
+function extractGoogleDriveFileId(rawUrl) {
   const matchD = rawUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
   const matchId = rawUrl.match(/[?&]id=([a-zA-Z0-9_-]+)/);
-
-  if (matchD && matchD[1]) fileId = matchD[1];
-  else if (matchId && matchId[1]) fileId = matchId[1];
-
-  if (fileId) {
-    return `https://drive.google.com/uc?export=download&id=${fileId}&confirm=t`;
-  }
-  return rawUrl;
+  if (matchD && matchD[1]) return matchD[1];
+  if (matchId && matchId[1]) return matchId[1];
+  return null;
 }
 
 // --- API ROUTES ---
@@ -219,7 +247,7 @@ app.post('/api/upload/init', (req, res) => {
   }
 });
 
-// 4. Direct Stream Pipe Upload for Chunks (Zero RAM overhead, 100% reliable)
+// 4. Direct Stream Pipe Upload for Chunks (Zero RAM overhead)
 app.post('/api/upload/chunk', (req, res) => {
   try {
     const uploadId = req.headers['x-upload-id'] || req.query.uploadId;
@@ -313,29 +341,40 @@ app.post('/api/upload/complete', async (req, res) => {
   }
 });
 
-// 6. Direct Import from Google Drive / URL Endpoint
+// 6. Direct Import from Google Drive / URL Endpoint (Handles 20GB+ virus scan bypass)
 app.post('/api/upload/url', async (req, res) => {
   try {
     const { url, title } = req.body;
     if (!url) return res.status(400).json({ error: 'URL is required' });
 
-    const targetUrl = transformGoogleDriveUrl(url);
+    let targetUrl = url;
+    let autoTitle = title;
+
+    const gdriveId = extractGoogleDriveFileId(url);
+    if (gdriveId) {
+      console.log(`Extracting Google Drive direct info for File ID: ${gdriveId}...`);
+      const gdriveInfo = await fetchGoogleDriveDirectInfo(gdriveId);
+      targetUrl = gdriveInfo.directUrl;
+      if (!autoTitle) autoTitle = gdriveInfo.title;
+      console.log(`Resolved Google Drive Direct Stream URL: ${targetUrl}`);
+    }
+
     const videoId = crypto.randomUUID();
     const finalFilename = `${videoId}.mp4`;
     const finalFilePath = path.join(UPLOADS_DIR, finalFilename);
 
-    // Download in background cloud-to-cloud stream
-    await downloadUrlToFile(targetUrl, finalFilePath);
+    console.log(`Downloading stream from ${targetUrl} to ${finalFilePath}...`);
+    const streamMeta = await downloadRawStream(targetUrl, finalFilePath);
 
     const stat = fs.statSync(finalFilePath);
-    const safeTitle = title || 'Imported Video';
+    const safeTitle = autoTitle || 'Imported Video';
 
     const newVideo = {
       id: videoId,
       title: safeTitle,
       filename: finalFilename,
-      filesize: stat.size,
-      mime_type: 'video/mp4',
+      filesize: stat.size || streamMeta.contentLength,
+      mime_type: streamMeta.contentType || 'video/mp4',
       created_at: Date.now()
     };
 
