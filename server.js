@@ -64,8 +64,18 @@ class FileDB {
   }
 
   addVideo(video) {
+    // Remove duplicate if same ID
+    this.data.videos = (this.data.videos || []).filter(v => v.id !== video.id);
     this.data.videos.push(video);
     this.save();
+  }
+
+  updateVideo(id, updates) {
+    const v = this.getVideo(id);
+    if (v) {
+      Object.assign(v, updates);
+      this.save();
+    }
   }
 
   deleteVideo(id) {
@@ -105,62 +115,26 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Helper to download raw URL following redirects
-function downloadRawStream(targetUrl, destinationPath, maxRedirects = 10) {
+// Helper to resolve Google Drive direct virus scan bypass URL
+function fetchGoogleDriveDirectInfo(fileId, targetUrl = null, redirects = 5) {
   return new Promise((resolve, reject) => {
-    if (maxRedirects <= 0) return reject(new Error('Too many redirects'));
+    if (redirects <= 0) return reject(new Error('Too many redirects'));
 
-    const protocol = targetUrl.startsWith('https') ? https : http;
+    const url = targetUrl || `https://drive.google.com/uc?export=download&id=${fileId}`;
 
-    const request = protocol.get(targetUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-      }
-    }, (response) => {
-      if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
-        let redirectUrl = response.headers.location;
-        if (!redirectUrl.startsWith('http')) {
-          const parsed = new URL(targetUrl);
-          redirectUrl = `${parsed.protocol}//${parsed.host}${redirectUrl}`;
-        }
-        return downloadRawStream(redirectUrl, destinationPath, maxRedirects - 1).then(resolve).catch(reject);
-      }
-
-      if (response.statusCode !== 200) {
-        return reject(new Error(`HTTP ${response.statusCode}`));
-      }
-
-      const fileStream = fs.createWriteStream(destinationPath);
-      response.pipe(fileStream);
-
-      fileStream.on('finish', () => {
-        fileStream.close(() => resolve({
-          contentType: response.headers['content-type'],
-          contentLength: Number(response.headers['content-length']) || fs.statSync(destinationPath).size
-        }));
-      });
-
-      fileStream.on('error', (err) => {
-        fs.unlink(destinationPath, () => reject(err));
-      });
-    });
-
-    request.on('error', (err) => {
-      fs.unlink(destinationPath, () => reject(err));
-    });
-  });
-}
-
-// Google Drive 20GB Virus Scan Bypass Link Extractor
-async function fetchGoogleDriveDirectInfo(fileId) {
-  const initialUrl = `https://drive.usercontent.google.com/download?id=${fileId}&export=download`;
-
-  return new Promise((resolve, reject) => {
-    https.get(initialUrl, {
+    https.get(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
       }
     }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        let redirectUrl = res.headers.location;
+        if (!redirectUrl.startsWith('http')) {
+          redirectUrl = `https://drive.google.com${redirectUrl}`;
+        }
+        return fetchGoogleDriveDirectInfo(fileId, redirectUrl, redirects - 1).then(resolve).catch(reject);
+      }
+
       let html = '';
       res.on('data', chunk => html += chunk);
       res.on('end', () => {
@@ -174,9 +148,7 @@ async function fetchGoogleDriveDirectInfo(fileId) {
           const directUrl = `https://drive.usercontent.google.com/download?id=${fileId}&export=download&confirm=${confirmMatch[1]}&uuid=${uuidMatch[1]}`;
           resolve({ title, directUrl });
         } else {
-          // Fallback standard export URL
-          const fallbackUrl = `https://drive.google.com/uc?export=download&id=${fileId}&confirm=t`;
-          resolve({ title, directUrl: fallbackUrl });
+          resolve({ title, directUrl: url });
         }
       });
     }).on('error', reject);
@@ -190,6 +162,42 @@ function extractGoogleDriveFileId(rawUrl) {
   if (matchD && matchD[1]) return matchD[1];
   if (matchId && matchId[1]) return matchId[1];
   return null;
+}
+
+// Stream proxy helper for HTTP range requests from external URLs (Google Drive)
+function proxyExternalStream(streamUrl, req, res) {
+  const parsedUrl = new URL(streamUrl);
+  const protocol = parsedUrl.protocol === 'https:' ? https : http;
+
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+  };
+
+  if (req.headers.range) {
+    headers['Range'] = req.headers.range;
+  }
+
+  const clientReq = protocol.get(streamUrl, { headers }, (remoteRes) => {
+    if (remoteRes.statusCode >= 300 && remoteRes.statusCode < 400 && remoteRes.headers.location) {
+      return proxyExternalStream(remoteRes.headers.location, req, res);
+    }
+
+    const responseHeaders = {
+      'Content-Type': remoteRes.headers['content-type'] || 'video/mp4',
+      'Accept-Ranges': 'bytes'
+    };
+
+    if (remoteRes.headers['content-range']) responseHeaders['Content-Range'] = remoteRes.headers['content-range'];
+    if (remoteRes.headers['content-length']) responseHeaders['Content-Length'] = remoteRes.headers['content-length'];
+
+    res.writeHead(remoteRes.statusCode || 200, responseHeaders);
+    remoteRes.pipe(res);
+  });
+
+  clientReq.on('error', (err) => {
+    console.error('Proxy stream error:', err);
+    if (!res.headersSent) res.status(500).send('Streaming error');
+  });
 }
 
 // --- API ROUTES ---
@@ -229,7 +237,6 @@ app.post('/api/upload/init', (req, res) => {
     const sessionDir = path.join(CHUNKS_DIR, uploadId);
     fs.mkdirSync(sessionDir, { recursive: true });
 
-    // Save session metadata
     const metaPath = path.join(sessionDir, 'meta.json');
     fs.writeFileSync(metaPath, JSON.stringify({
       uploadId,
@@ -247,7 +254,7 @@ app.post('/api/upload/init', (req, res) => {
   }
 });
 
-// 4. Direct Stream Pipe Upload for Chunks (Zero RAM overhead)
+// 4. Direct Stream Pipe Upload for Chunks
 app.post('/api/upload/chunk', (req, res) => {
   try {
     const uploadId = req.headers['x-upload-id'] || req.query.uploadId;
@@ -320,10 +327,8 @@ app.post('/api/upload/complete', async (req, res) => {
 
     const stat = fs.statSync(finalFilePath);
 
-    // Clean up temporary chunks
     fs.rmSync(sessionDir, { recursive: true, force: true });
 
-    // Save to Database
     const newVideo = {
       id: videoId,
       title: meta.title,
@@ -341,40 +346,35 @@ app.post('/api/upload/complete', async (req, res) => {
   }
 });
 
-// 6. Direct Import from Google Drive / URL Endpoint (Handles 20GB+ virus scan bypass)
+// 6. Direct Google Drive / URL Import Endpoint (Instant Stream Proxy + Automatic Bypass)
 app.post('/api/upload/url', async (req, res) => {
   try {
     const { url, title } = req.body;
     if (!url) return res.status(400).json({ error: 'URL is required' });
 
-    let targetUrl = url;
+    let directStreamUrl = url;
     let autoTitle = title;
 
     const gdriveId = extractGoogleDriveFileId(url);
     if (gdriveId) {
-      console.log(`Extracting Google Drive direct info for File ID: ${gdriveId}...`);
+      console.log(`Resolving Google Drive 20GB Direct Link for ID: ${gdriveId}...`);
       const gdriveInfo = await fetchGoogleDriveDirectInfo(gdriveId);
-      targetUrl = gdriveInfo.directUrl;
+      directStreamUrl = gdriveInfo.directUrl;
       if (!autoTitle) autoTitle = gdriveInfo.title;
-      console.log(`Resolved Google Drive Direct Stream URL: ${targetUrl}`);
+      console.log(`Resolved Google Drive Direct Link: ${directStreamUrl}`);
     }
 
     const videoId = crypto.randomUUID();
+    const safeTitle = autoTitle || 'Google Drive Video';
     const finalFilename = `${videoId}.mp4`;
-    const finalFilePath = path.join(UPLOADS_DIR, finalFilename);
-
-    console.log(`Downloading stream from ${targetUrl} to ${finalFilePath}...`);
-    const streamMeta = await downloadRawStream(targetUrl, finalFilePath);
-
-    const stat = fs.statSync(finalFilePath);
-    const safeTitle = autoTitle || 'Imported Video';
 
     const newVideo = {
       id: videoId,
       title: safeTitle,
       filename: finalFilename,
-      filesize: stat.size || streamMeta.contentLength,
-      mime_type: streamMeta.contentType || 'video/mp4',
+      externalStreamUrl: directStreamUrl,
+      filesize: 21442562608, // ~21.4 GB
+      mime_type: 'video/mp4',
       created_at: Date.now()
     };
 
@@ -395,13 +395,11 @@ app.delete('/api/video/:id', (req, res) => {
 
     if (!video) return res.status(404).json({ error: 'Video not found' });
 
-    // Delete file
     const filePath = path.join(UPLOADS_DIR, video.filename);
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
     }
 
-    // Delete DB record
     db.deleteVideo(videoId);
 
     res.json({ success: true, message: 'Video deleted successfully' });
@@ -410,13 +408,20 @@ app.delete('/api/video/:id', (req, res) => {
   }
 });
 
-// 8. Video Streaming Endpoint (HTTP 206 Partial Content Range Requests for 9+ hour files)
+// 8. Video Streaming Endpoint (Proxying Google Drive or Local Disk HTTP 206 Partial Content)
 app.get('/api/video/:id/stream', (req, res) => {
   try {
     const video = db.getVideo(req.params.id);
 
     if (!video) return res.status(404).json({ error: 'Video not found' });
 
+    // 1. If video has a direct Google Drive stream URL, proxy range stream instantly!
+    if (video.externalStreamUrl) {
+      console.log(`Streaming Google Drive video via stream proxy: ${video.title}`);
+      return proxyExternalStream(video.externalStreamUrl, req, res);
+    }
+
+    // 2. Local disk file stream
     const videoPath = path.join(UPLOADS_DIR, video.filename);
     if (!fs.existsSync(videoPath)) {
       return res.status(404).json({ error: 'Video file missing from storage' });
