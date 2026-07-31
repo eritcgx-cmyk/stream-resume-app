@@ -15,9 +15,6 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
   <link rel="stylesheet" href="style.css">
-
-  <!-- h265webjs Universal HEVC/H.265 Web Decoder -->
-  <script src="https://unpkg.com/h265webjs@latest/dist/h265webjs.js"></script>
 </head>
 <body>
   <!-- Dynamic Animated Background -->
@@ -51,7 +48,7 @@
         <p>Upload 9+ hour videos from your PC or import directly from Google Drive, stream on any device, and automatically resume watch progress.</p>
       </div>
       <div class="hero-badge">
-        <div class="badge-item"><i class="fa-solid fa-microchip"></i> H.264 / HEVC H.265 Universal Playback</div>
+        <div class="badge-item"><i class="fa-brands fa-google-drive"></i> Native HTTP 206 Streaming</div>
         <div class="badge-item"><i class="fa-solid fa-infinity"></i> 9+ Hour Streaming</div>
         <div class="badge-item"><i class="fa-solid fa-bookmark"></i> Cross-Device Resume</div>
       </div>
@@ -171,7 +168,7 @@
           <div class="form-group">
             <label for="urlLinkInput"><i class="fa-brands fa-google-drive"></i> Google Drive or Direct Video Link</label>
             <input type="url" id="urlLinkInput" placeholder="https://drive.google.com/file/d/.../view?usp=drive_link" required>
-            <div class="input-hint">Paste your Google Drive link or video URL. Universal playback on all browsers & devices!</div>
+            <div class="input-hint">Paste your Google Drive link or video URL. Instant HTTP 206 streaming!</div>
           </div>
 
           <!-- URL Import Loading Status -->
@@ -192,7 +189,7 @@
     </div>
   </div>
 
-  <!-- Universal Video Player Modal -->
+  <!-- HTML5 Native Stream Video Player Modal -->
   <div id="playerModal" class="modal-overlay player-modal-overlay hidden">
     <div class="player-container glass-panel">
       <!-- Player Header -->
@@ -206,10 +203,9 @@
         <button id="closePlayerModal" class="btn-close">&times;</button>
       </div>
 
-      <!-- Player Wrapper -->
+      <!-- Video Player Wrapper -->
       <div class="video-wrapper">
-        <video id="mainVideoPlayer" controls preload="metadata" playsinline></video>
-        <div id="h265PlayerContainer" class="h265-container hidden"></div>
+        <video id="mainVideoPlayer" controls autoplay preload="auto" playsinline></video>
 
         <!-- Toast notification for position saving -->
         <div id="saveToast" class="save-toast hidden">

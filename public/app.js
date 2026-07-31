@@ -6,7 +6,6 @@ let currentVideos = [];
 let activeUploadController = null;
 let currentPlayingVideo = null;
 let autoSaveInterval = null;
-let h265PlayerInstance = null;
 
 // DOM Elements
 const videoGrid = document.getElementById('videoGrid');
@@ -62,7 +61,6 @@ const playerModal = document.getElementById('playerModal');
 const closePlayerModal = document.getElementById('closePlayerModal');
 const playerVideoTitle = document.getElementById('playerVideoTitle');
 const mainVideoPlayer = document.getElementById('mainVideoPlayer');
-const h265PlayerContainer = document.getElementById('h265PlayerContainer');
 const playerResumeBadge = document.getElementById('playerResumeBadge');
 const playerResumeTime = document.getElementById('playerResumeTime');
 const saveToast = document.getElementById('saveToast');
@@ -494,7 +492,7 @@ async function handleUrlImportSubmit(e) {
 
 // Delete Video
 async function deleteVideo(id, event) {
-  event.stopPropagation();
+  if (event) event.stopPropagation();
   if (!confirm('Are you sure you want to delete this video?')) return;
 
   try {
@@ -519,11 +517,6 @@ async function openPlayer(videoId) {
   playerVideoTitle.textContent = video.title;
   playerResumeBadge.classList.add('hidden');
 
-  // Reset Player containers
-  mainVideoPlayer.classList.remove('hidden');
-  h265PlayerContainer.classList.add('hidden');
-  h265PlayerContainer.innerHTML = '';
-
   playerModal.classList.remove('hidden');
 
   // Fetch saved playback progress for active profile
@@ -538,7 +531,7 @@ async function openPlayer(videoId) {
     console.warn('Could not fetch saved progress', e);
   }
 
-  // Set streaming source URL
+  // Set native HTML5 streaming URL
   const streamUrl = `/api/video/${videoId}/stream`;
   mainVideoPlayer.src = streamUrl;
 
@@ -552,15 +545,8 @@ async function openPlayer(videoId) {
     }
 
     mainVideoPlayer.play().catch(e => {
-      console.log('Autoplay prevented or unsupported codec:', e);
-      // Fallback to h265webjs universal decoder if browser fails to decode HEVC
-      initH265WebPlayer(streamUrl, savedTime);
+      console.log('Autoplay prevented:', e);
     });
-  };
-
-  mainVideoPlayer.onerror = () => {
-    console.warn('Native HTML5 video error, switching to Universal Web Assembly Player...');
-    initH265WebPlayer(streamUrl, savedTime);
   };
 
   // Start periodic auto-save (every 4 seconds)
@@ -568,43 +554,6 @@ async function openPlayer(videoId) {
   autoSaveInterval = setInterval(() => {
     savePlaybackPosition(false);
   }, 4000);
-}
-
-// Universal WebAssembly Player Fallback for HEVC H.265 / MKV files
-function initH265WebPlayer(streamUrl, savedTime = 0) {
-  mainVideoPlayer.pause();
-  mainVideoPlayer.classList.add('hidden');
-  h265PlayerContainer.classList.remove('hidden');
-  h265PlayerContainer.innerHTML = '';
-
-  if (typeof window.makeH265webjsPlayer === 'function') {
-    try {
-      h265PlayerInstance = window.makeH265webjsPlayer(streamUrl, {
-        player: 'h265PlayerContainer',
-        width: 1000,
-        height: 520,
-        token: 'none'
-      });
-      h265PlayerInstance.doPlay();
-      if (savedTime > 5) {
-        h265PlayerInstance.seek(savedTime);
-        playerResumeTime.textContent = formatTime(savedTime);
-        playerResumeBadge.classList.remove('hidden');
-      }
-      durationDisplay.textContent = 'Universal HEVC Stream';
-    } catch (err) {
-      console.error('h265webjs init error:', err);
-    }
-  } else {
-    // Standard canvas fallback
-    h265PlayerContainer.innerHTML = `
-      <div style="padding:40px; text-align:center; color:#9ca3af;">
-        <i class="fa-solid fa-play-circle" style="font-size:3rem; color:#6366f1; margin-bottom:12px;"></i>
-        <h3>Streaming HEVC H.265 Video</h3>
-        <p style="margin-top:8px;">Playing video stream directly from cloud server.</p>
-      </div>
-    `;
-  }
 }
 
 // Close Video Player
@@ -618,11 +567,6 @@ function closePlayer() {
 
   mainVideoPlayer.pause();
   mainVideoPlayer.src = '';
-  if (h265PlayerInstance && typeof h265PlayerInstance.destroy === 'function') {
-    h265PlayerInstance.destroy();
-    h265PlayerInstance = null;
-  }
-
   currentPlayingVideo = null;
   playerModal.classList.add('hidden');
   loadVideos();
@@ -657,7 +601,7 @@ async function savePlaybackPosition(showToastNotification = false) {
 
 // Jump playback time +/-
 function jumpTime(seconds) {
-  if (!mainVideoPlayer || mainVideoPlayer.classList.contains('hidden')) return;
+  if (!mainVideoPlayer) return;
   mainVideoPlayer.currentTime = Math.max(0, Math.min(mainVideoPlayer.duration, mainVideoPlayer.currentTime + seconds));
 }
 
