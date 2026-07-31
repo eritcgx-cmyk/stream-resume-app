@@ -4,6 +4,8 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
+import http from 'http';
+import https from 'https';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -102,6 +104,65 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Helper function to stream download from URL following redirects (including Google Drive confirm tokens)
+function downloadUrlToFile(targetUrl, destinationPath, maxRedirects = 10) {
+  return new Promise((resolve, reject) => {
+    if (maxRedirects <= 0) return reject(new Error('Too many redirects'));
+
+    const protocol = targetUrl.startsWith('https') ? https : http;
+
+    const request = protocol.get(targetUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      }
+    }, (response) => {
+      // Handle HTTP redirects (301, 302, 303, 307, 308)
+      if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+        let redirectUrl = response.headers.location;
+        if (!redirectUrl.startsWith('http')) {
+          const parsed = new URL(targetUrl);
+          redirectUrl = `${parsed.protocol}//${parsed.host}${redirectUrl}`;
+        }
+        return downloadUrlToFile(redirectUrl, destinationPath, maxRedirects - 1).then(resolve).catch(reject);
+      }
+
+      if (response.statusCode !== 200) {
+        return reject(new Error(`Server responded with status code ${response.statusCode}`));
+      }
+
+      const fileStream = fs.createWriteStream(destinationPath);
+      response.pipe(fileStream);
+
+      fileStream.on('finish', () => {
+        fileStream.close(resolve);
+      });
+
+      fileStream.on('error', (err) => {
+        fs.unlink(destinationPath, () => reject(err));
+      });
+    });
+
+    request.on('error', (err) => {
+      fs.unlink(destinationPath, () => reject(err));
+    });
+  });
+}
+
+// Convert Google Drive view URL to direct export stream URL
+function transformGoogleDriveUrl(rawUrl) {
+  let fileId = null;
+  const matchD = rawUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  const matchId = rawUrl.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+
+  if (matchD && matchD[1]) fileId = matchD[1];
+  else if (matchId && matchId[1]) fileId = matchId[1];
+
+  if (fileId) {
+    return `https://drive.google.com/uc?export=download&id=${fileId}&confirm=t`;
+  }
+  return rawUrl;
+}
 
 // --- API ROUTES ---
 
@@ -229,7 +290,6 @@ app.post('/api/upload/complete', async (req, res) => {
       writeStream.on('error', reject);
     });
 
-    // Check final file size
     const stat = fs.statSync(finalFilePath);
 
     // Clean up temporary chunks
@@ -253,7 +313,42 @@ app.post('/api/upload/complete', async (req, res) => {
   }
 });
 
-// 6. Delete Video
+// 6. Direct Import from Google Drive / URL Endpoint
+app.post('/api/upload/url', async (req, res) => {
+  try {
+    const { url, title } = req.body;
+    if (!url) return res.status(400).json({ error: 'URL is required' });
+
+    const targetUrl = transformGoogleDriveUrl(url);
+    const videoId = crypto.randomUUID();
+    const finalFilename = `${videoId}.mp4`;
+    const finalFilePath = path.join(UPLOADS_DIR, finalFilename);
+
+    // Download in background cloud-to-cloud stream
+    await downloadUrlToFile(targetUrl, finalFilePath);
+
+    const stat = fs.statSync(finalFilePath);
+    const safeTitle = title || 'Imported Video';
+
+    const newVideo = {
+      id: videoId,
+      title: safeTitle,
+      filename: finalFilename,
+      filesize: stat.size,
+      mime_type: 'video/mp4',
+      created_at: Date.now()
+    };
+
+    db.addVideo(newVideo);
+
+    res.json({ success: true, video: newVideo });
+  } catch (err) {
+    console.error('URL import error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 7. Delete Video
 app.delete('/api/video/:id', (req, res) => {
   try {
     const videoId = req.params.id;
@@ -276,7 +371,7 @@ app.delete('/api/video/:id', (req, res) => {
   }
 });
 
-// 7. Video Streaming Endpoint (HTTP 206 Partial Content Range Requests for 9+ hour files)
+// 8. Video Streaming Endpoint (HTTP 206 Partial Content Range Requests for 9+ hour files)
 app.get('/api/video/:id/stream', (req, res) => {
   try {
     const video = db.getVideo(req.params.id);
@@ -326,7 +421,7 @@ app.get('/api/video/:id/stream', (req, res) => {
   }
 });
 
-// 8. Save Playback Progress (Resume feature)
+// 9. Save Playback Progress (Resume feature)
 app.post('/api/progress', (req, res) => {
   try {
     const { videoId, userId, timestamp, duration } = req.body;
@@ -341,7 +436,7 @@ app.post('/api/progress', (req, res) => {
   }
 });
 
-// 9. Get Playback Progress
+// 10. Get Playback Progress
 app.get('/api/progress/:videoId', (req, res) => {
   try {
     const { videoId } = req.params;

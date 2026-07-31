@@ -20,13 +20,18 @@ const closeProfileModal = document.getElementById('closeProfileModal');
 const profileInput = document.getElementById('profileInput');
 const saveProfileBtn = document.getElementById('saveProfileBtn');
 
-// Upload Modal Elements
+// Modal & Tab Elements
 const openUploadBtn = document.getElementById('openUploadBtn');
 const emptyUploadBtn = document.getElementById('emptyUploadBtn');
 const uploadModal = document.getElementById('uploadModal');
 const closeUploadModal = document.getElementById('closeUploadModal');
-const cancelUploadBtn = document.getElementById('cancelUploadBtn');
+const tabLocalUploadBtn = document.getElementById('tabLocalUploadBtn');
+const tabDriveImportBtn = document.getElementById('tabDriveImportBtn');
 const uploadForm = document.getElementById('uploadForm');
+const urlImportForm = document.getElementById('urlImportForm');
+
+// Local Upload Form Elements
+const cancelUploadBtn = document.getElementById('cancelUploadBtn');
 const videoTitleInput = document.getElementById('videoTitle');
 const videoFileInput = document.getElementById('videoFileInput');
 const dropZone = document.getElementById('dropZone');
@@ -35,13 +40,21 @@ const selectedFileName = document.getElementById('selectedFileName');
 const selectedFileSize = document.getElementById('selectedFileSize');
 const startUploadBtn = document.getElementById('startUploadBtn');
 
-// Upload Progress Elements
+// Local Upload Progress Elements
 const uploadProgressSection = document.getElementById('uploadProgressSection');
 const uploadStatusText = document.getElementById('uploadStatusText');
 const uploadPercent = document.getElementById('uploadPercent');
 const uploadProgressBar = document.getElementById('uploadProgressBar');
 const uploadSpeed = document.getElementById('uploadSpeed');
 const uploadEta = document.getElementById('uploadEta');
+
+// URL / Google Drive Import Elements
+const urlTitleInput = document.getElementById('urlTitleInput');
+const urlLinkInput = document.getElementById('urlLinkInput');
+const startUrlImportBtn = document.getElementById('startUrlImportBtn');
+const cancelUrlImportBtn = document.getElementById('cancelUrlImportBtn');
+const urlImportStatus = document.getElementById('urlImportStatus');
+const urlImportText = document.getElementById('urlImportText');
 
 // Player Elements
 const playerModal = document.getElementById('playerModal');
@@ -86,6 +99,11 @@ function setupEventListeners() {
   emptyUploadBtn.addEventListener('click', showUploadModal);
   closeUploadModal.addEventListener('click', hideUploadModal);
   cancelUploadBtn.addEventListener('click', hideUploadModal);
+  cancelUrlImportBtn.addEventListener('click', hideUploadModal);
+
+  // Tabs
+  tabLocalUploadBtn.addEventListener('click', () => switchTab('local'));
+  tabDriveImportBtn.addEventListener('click', () => switchTab('drive'));
 
   // Profile modal listeners
   profileSyncBtn.addEventListener('click', () => profileModal.classList.remove('hidden'));
@@ -113,6 +131,7 @@ function setupEventListeners() {
 
   videoFileInput.addEventListener('change', handleFileSelected);
   uploadForm.addEventListener('submit', handleUploadSubmit);
+  urlImportForm.addEventListener('submit', handleUrlImportSubmit);
 
   // Player controls
   closePlayerModal.addEventListener('click', closePlayer);
@@ -136,6 +155,20 @@ function setupEventListeners() {
   });
 }
 
+function switchTab(mode) {
+  if (mode === 'local') {
+    tabLocalUploadBtn.classList.add('active');
+    tabDriveImportBtn.classList.remove('active');
+    uploadForm.classList.remove('hidden');
+    urlImportForm.classList.add('hidden');
+  } else {
+    tabDriveImportBtn.classList.add('active');
+    tabLocalUploadBtn.classList.remove('active');
+    urlImportForm.classList.remove('hidden');
+    uploadForm.classList.add('hidden');
+  }
+}
+
 function handleProfileSave() {
   const newName = profileInput.value.trim();
   if (!newName) return;
@@ -149,11 +182,12 @@ function handleProfileSave() {
 
 // Format bytes to human readable string
 function formatBytes(bytes) {
-  if (bytes === 0) return '0 Bytes';
+  const num = Number(bytes);
+  if (!num || isNaN(num) || num <= 0) return '0 Bytes';
   const k = 1024;
   const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  const i = Math.floor(Math.log(num) / Math.log(k));
+  return parseFloat((num / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
 // Format seconds into HH:MM:SS
@@ -301,9 +335,12 @@ function hideUploadModal() {
 
 function resetUploadForm() {
   uploadForm.reset();
+  urlImportForm.reset();
   selectedFileInfo.classList.add('hidden');
   uploadProgressSection.classList.add('hidden');
+  urlImportStatus.classList.add('hidden');
   startUploadBtn.disabled = true;
+  startUrlImportBtn.disabled = false;
   uploadProgressBar.style.width = '0%';
 }
 
@@ -326,7 +363,6 @@ async function handleUploadSubmit(e) {
   const startTime = Date.now();
 
   try {
-    // 1. Initiate upload session
     uploadStatusText.textContent = 'Initializing upload session...';
     const initRes = await fetch('/api/upload/init', {
       method: 'POST',
@@ -346,7 +382,6 @@ async function handleUploadSubmit(e) {
 
     const uploadId = initData.uploadId;
 
-    // 2. Upload chunks sequentially
     let uploadedBytes = 0;
 
     for (let i = 0; i < totalChunks; i++) {
@@ -372,7 +407,7 @@ async function handleUploadSubmit(e) {
       uploadedBytes += (end - start);
 
       const percent = Math.round((uploadedBytes / file.size) * 100);
-      const elapsedTime = (Date.now() - startTime) / 1000;
+      const elapsedTime = Math.max(0.1, (Date.now() - startTime) / 1000);
       const speed = uploadedBytes / elapsedTime;
       const remainingBytes = file.size - uploadedBytes;
       const etaSeconds = speed > 0 ? Math.round(remainingBytes / speed) : 0;
@@ -383,7 +418,6 @@ async function handleUploadSubmit(e) {
       uploadEta.textContent = `ETA: ${formatTime(etaSeconds)}`;
     }
 
-    // 3. Complete and assemble upload
     uploadStatusText.textContent = 'Assembling video file on server...';
     uploadEta.textContent = 'Finalizing...';
 
@@ -415,6 +449,44 @@ async function handleUploadSubmit(e) {
     resetUploadForm();
   } finally {
     activeUploadController = null;
+  }
+}
+
+// Handle Google Drive / Direct Link Import Submit
+async function handleUrlImportSubmit(e) {
+  e.preventDefault();
+
+  const url = urlLinkInput.value.trim();
+  const title = urlTitleInput.value.trim();
+
+  if (!url) return;
+
+  startUrlImportBtn.disabled = true;
+  urlImportStatus.classList.remove('hidden');
+  urlImportText.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Transferring video directly from Google Drive to cloud server...';
+
+  try {
+    const res = await fetch('/api/upload/url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, title })
+    });
+
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Failed to import video from URL');
+
+    urlImportText.innerHTML = '<i class="fa-solid fa-circle-check" style="color:#10b981;"></i> Video imported successfully!';
+
+    setTimeout(() => {
+      hideUploadModal();
+      loadVideos();
+    }, 1200);
+
+  } catch (err) {
+    console.error('Import Error:', err);
+    alert(`Import failed: ${err.message}`);
+    startUrlImportBtn.disabled = false;
+    urlImportStatus.classList.add('hidden');
   }
 }
 

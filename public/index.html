@@ -36,7 +36,7 @@
         </button>
 
         <button id="openUploadBtn" class="btn btn-primary">
-          <i class="fa-solid fa-cloud-arrow-up"></i> Upload Video
+          <i class="fa-solid fa-cloud-arrow-up"></i> Add Video
         </button>
       </div>
     </header>
@@ -45,10 +45,10 @@
     <section class="hero-card glass-panel">
       <div class="hero-content">
         <h1>Cloud Video Streaming <span class="gradient-text">Across All Devices</span></h1>
-        <p>Upload 9+ hour videos from your PC, stream them on your phone, tablet, or smart TV, and automatically resume watch progress across all your devices.</p>
+        <p>Upload 9+ hour videos from your PC or import directly from Google Drive, stream on any device, and automatically resume watch progress.</p>
       </div>
       <div class="hero-badge">
-        <div class="badge-item"><i class="fa-solid fa-mobile-screen-button"></i> Multi-Device Sync</div>
+        <div class="badge-item"><i class="fa-brands fa-google-drive"></i> Google Drive Cloud Import</div>
         <div class="badge-item"><i class="fa-solid fa-infinity"></i> 9+ Hour Streaming</div>
         <div class="badge-item"><i class="fa-solid fa-bookmark"></i> Cross-Device Resume</div>
       </div>
@@ -72,8 +72,8 @@
       <div id="emptyState" class="empty-state glass-panel hidden">
         <div class="empty-icon"><i class="fa-solid fa-video-slash"></i></div>
         <h3>No videos uploaded yet</h3>
-        <p>Upload a video of any length (up to 9+ hours) to stream it anywhere!</p>
-        <button id="emptyUploadBtn" class="btn btn-primary"><i class="fa-solid fa-plus"></i> Upload First Video</button>
+        <p>Upload a video from your device or import directly from a Google Drive link!</p>
+        <button id="emptyUploadBtn" class="btn btn-primary"><i class="fa-solid fa-plus"></i> Add First Video</button>
       </div>
     </main>
   </div>
@@ -98,20 +98,26 @@
     </div>
   </div>
 
-  <!-- Upload Modal -->
+  <!-- Upload / Import Modal -->
   <div id="uploadModal" class="modal-overlay hidden">
     <div class="modal-content glass-panel">
       <div class="modal-header">
-        <h3><i class="fa-solid fa-cloud-arrow-up"></i> Upload Large Video</h3>
+        <h3><i class="fa-solid fa-cloud-arrow-up"></i> Add Video to Library</h3>
         <button id="closeUploadModal" class="btn-close">&times;</button>
       </div>
 
       <div class="modal-body">
-        <!-- Upload Form -->
-        <form id="uploadForm">
+        <!-- Tab Switcher -->
+        <div class="upload-tabs">
+          <button id="tabLocalUploadBtn" class="tab-btn active"><i class="fa-solid fa-hard-drive"></i> Local File Upload</button>
+          <button id="tabDriveImportBtn" class="tab-btn"><i class="fa-brands fa-google-drive"></i> Google Drive / URL Import</button>
+        </div>
+
+        <!-- Mode 1: Local File Upload Form -->
+        <form id="uploadForm" class="tab-content">
           <div class="form-group">
             <label for="videoTitle">Video Title</label>
-            <input type="text" id="videoTitle" placeholder="e.g. 9-Hour Study Session / Full Stream" required>
+            <input type="text" id="videoTitle" placeholder="e.g. 9-Hour Study Session / Full Stream">
           </div>
 
           <div class="drop-zone" id="dropZone">
@@ -148,6 +154,34 @@
             <button type="button" id="cancelUploadBtn" class="btn btn-secondary">Cancel</button>
             <button type="submit" id="startUploadBtn" class="btn btn-primary" disabled>
               <i class="fa-solid fa-upload"></i> Start Resumable Upload
+            </button>
+          </div>
+        </form>
+
+        <!-- Mode 2: Google Drive / URL Import Form -->
+        <form id="urlImportForm" class="tab-content hidden">
+          <div class="form-group">
+            <label for="urlTitleInput">Video Title (Optional)</label>
+            <input type="text" id="urlTitleInput" placeholder="e.g. 9-Hour Stream Video">
+          </div>
+
+          <div class="form-group">
+            <label for="urlLinkInput"><i class="fa-brands fa-google-drive"></i> Google Drive or Direct Video Link</label>
+            <input type="url" id="urlLinkInput" placeholder="https://drive.google.com/file/d/.../view?usp=drive_link" required>
+            <div class="input-hint">Paste your Google Drive link or video URL. Cloud-to-cloud transfer directly to your site!</div>
+          </div>
+
+          <!-- URL Import Loading Status -->
+          <div id="urlImportStatus" class="upload-progress-section hidden">
+            <div class="progress-details">
+              <span id="urlImportText"><i class="fa-solid fa-spinner fa-spin"></i> Downloading video directly from Google Drive...</span>
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" id="cancelUrlImportBtn" class="btn btn-secondary">Cancel</button>
+            <button type="submit" id="startUrlImportBtn" class="btn btn-primary">
+              <i class="fa-solid fa-cloud-arrow-down"></i> Import to Server
             </button>
           </div>
         </form>
